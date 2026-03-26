@@ -8,11 +8,11 @@ This workflow is designed to be reusable, scalable, and compatible with Claude-b
 
 ## Inputs
 
-| Field       | Type             | Description                              |
-|-------------|------------------|------------------------------------------|
-| `imageUrl`  | string           | Publicly accessible image or video URL   |
-| `caption`   | string           | Post copy (can be platform-specific)     |
-| `platforms` | array of strings | e.g. `["facebook", "linkedin"]`          |
+| Field       | Type             | Description                            |
+|-------------|------------------|----------------------------------------|
+| `imageUrl`  | string           | Publicly accessible image or video URL |
+| `caption`   | string           | Post copy (can be empty but recommended) |
+| `platforms` | array of strings | e.g. `["facebook", "linkedin"]`        |
 
 ### Example Payload
 ```json
@@ -27,138 +27,193 @@ This workflow is designed to be reusable, scalable, and compatible with Claude-b
 
 ## Output
 - Posts successfully published to each selected platform
-- Structured log entry written to `/logs/posts.json` for each platform
+- Structured log entry written to `/logs/posts.json`
 
 ---
 
 ## Workflow Steps
 
 ### Step 1 — Validate Inputs
-Before posting, verify the payload is complete and well-formed.
 
-```javascript
-function validatePayload({ imageUrl, caption, platforms }) {
-  if (!imageUrl || typeof imageUrl !== 'string')
-    throw new Error('imageUrl is required and must be a string');
-  if (!caption || typeof caption !== 'string')
-    throw new Error('caption is required and must be a string');
-  if (!Array.isArray(platforms) || platforms.length === 0)
-    throw new Error('platforms must be a non-empty array');
+Ensure all required fields are present and valid before proceeding.
 
-  const supported = ['facebook', 'linkedin'];
-  const unsupported = platforms.filter(p => !supported.includes(p));
-  if (unsupported.length > 0)
-    throw new Error(`Unsupported platform(s): ${unsupported.join(', ')}`);
-}
-```
+- `imageUrl` — must be present and a valid string URL
+- `caption` — must be a string (can be empty, but recommended)
+- `platforms` — must be a non-empty array containing only valid values (`"facebook"`, `"linkedin"`)
 
-### Step 2 — (Optional) Generate Visuals with Remotion
-Render platform-optimised branded assets before posting.
+**If validation fails:**
+- Abort execution immediately
+- Log the failure to `/logs/posts.json`
+- Return `{ "success": false, "errors": ["Validation failed: <reason>"] }`
 
-| Platform | Recommended Size | Remotion Template |
-|----------|------------------|-------------------|
-| Facebook | 1200 × 630       | `fb-landscape`    |
-| LinkedIn | 1200 × 628       | `li-landscape`    |
-| Both     | 1080 × 1080      | `square-card`     |
+---
 
-```bash
-# Facebook asset
-npx remotion render src/index.ts FBLandscape out/fb-post.jpg \
-  --props='{"caption":"This is a test post","platform":"facebook"}'
+### Step 2 — Normalize Payload
 
-# LinkedIn asset
-npx remotion render src/index.ts LILandscape out/li-post.jpg \
-  --props='{"caption":"This is a test post","platform":"linkedin"}'
-```
-
-Upload rendered files to a public CDN (e.g. Cloudflare Images, S3) and use the returned URL as `imageUrl`.
-
-### Step 3 — (Optional) Generate Platform-Specific Captions
-For best engagement, tailor captions per platform using the prompt templates.
-
-- Facebook → `/prompts/facebookCaption.txt` — conversational, short, hashtag-friendly
-- LinkedIn → `/prompts/linkedinCaption.txt` — hook-driven, thought-leadership format
-
-Fill in `{{TOPIC}}` and `{{AUDIENCE}}`, pass to Claude or an LLM, use the output as `caption`.
-
-### Step 4 — Post to Each Platform
-Call `postRunner.js` with `platform = "all"` or loop for platform-specific captions.
-
-```javascript
-const { run } = require('./meta/postRunner');
-
-// Option A: single shared payload to all platforms
-const results = await run('all', { imageUrl, caption });
-
-// Option B: platform-specific captions (recommended for better engagement)
-for (const platform of platforms) {
-  const platformCaption = captions[platform] || caption;
-  await run(platform, { imageUrl, caption: platformCaption });
-}
-```
-
-### Step 5 — Handle Results
-Check each platform's response and surface any failures.
-
-```javascript
-for (const [platform, result] of Object.entries(results)) {
-  if (result.success) {
-    console.log(`✅ [${platform}] Posted successfully`);
-  } else {
-    console.error(`❌ [${platform}] Failed:`, result.result.error);
-    // TODO: add retry logic or alerting
-  }
-}
-```
-
-### Step 6 — Verify Log
-Each run appends an entry to `/logs/posts.json`:
+Create a standardized internal payload to pass through the rest of the workflow:
 
 ```json
 {
-  "timestamp": "2026-03-25T10:00:00.000Z",
-  "platform": "facebook",
-  "caption": "This is a test post",
-  "imageUrl": "https://example.com/image.jpg",
-  "success": true
+  "imageUrl": "...",
+  "caption": "...",
+  "timestamp": "ISO_8601"
 }
 ```
 
 ---
 
-## Full Example Script
+### Step 3 — Initialize Results Object
+
+```json
+{
+  "facebook": null,
+  "linkedin": null,
+  "errors": []
+}
+```
+
+---
+
+### Step 4 — Execute Platform Posts
+
+#### 🔵 Facebook Flow
+
+- **File:** `/meta/postRunner.js`
+- **Function:** `runPost({ imageUrl, caption })`
+
+**Behavior:**
+- Uses Meta Graph API `/photos` endpoint
+- Posts image via URL
+- Includes caption
+- Publishes immediately
+
+**On success:** Store API response in `results.facebook`
+
+**On failure:** Push error message to `results.errors`
+
+---
+
+#### 🔗 LinkedIn Flow (Scaffold or Active)
+
+- **File:** `/linkedin/linkedinRunner.js`
+- **Function:** `runLinkedInPost({ imageUrl, caption })`
+
+**Behavior:**
+- If `LINKEDIN_ACCESS_TOKEN` is present in `.env`: attempt post via LinkedIn UGC API
+- If token is absent: mark result as `"skipped"`
+
+**On success:** Store API response in `results.linkedin`
+
+**On failure:** Push error message to `results.errors`
+
+---
+
+### Step 5 — Logging
+
+Append a structured entry to `/logs/posts.json` after every run (success or failure):
+
+```json
+{
+  "timestamp": "ISO_8601",
+  "imageUrl": "...",
+  "caption": "...",
+  "platforms": ["facebook", "linkedin"],
+  "results": {
+    "facebook": "...",
+    "linkedin": "...",
+    "errors": []
+  }
+}
+```
+
+---
+
+### Step 6 — Return Final Result
+
+**On success:**
+```json
+{
+  "success": true,
+  "results": { ... }
+}
+```
+
+**On failure:**
+```json
+{
+  "success": false,
+  "errors": [ ... ]
+}
+```
+
+---
+
+## Claude Behavior Notes
+
+When executing this workflow, Claude should:
+
+- **Not** rewrite core posting logic
+- **Reuse** existing runners (`postRunner.js`, `linkedinRunner.js`)
+- **Only** orchestrate flow and data movement
+- **Log every attempt** — success or failure — without exception
+
+---
+
+## Reference Implementation
 
 ```javascript
 require('dotenv').config();
-const { run } = require('./meta/postRunner');
+const { run }            = require('../meta/postRunner');
+const { runLinkedIn }    = require('../linkedin/linkedinRunner');
+const { logPost }        = require('../utils/logger');
 
 async function multiPlatformPost({ imageUrl, caption, platforms }) {
-  // Step 1: Validate
-  if (!imageUrl || !caption || !platforms?.length) {
-    throw new Error('Missing required fields: imageUrl, caption, platforms');
-  }
 
-  const results = {};
+  // Step 1 — Validate
+  if (!imageUrl || typeof imageUrl !== 'string')
+    return { success: false, errors: ['imageUrl is required'] };
+  if (typeof caption !== 'string')
+    return { success: false, errors: ['caption must be a string'] };
+  if (!Array.isArray(platforms) || platforms.length === 0)
+    return { success: false, errors: ['platforms must be a non-empty array'] };
 
-  // Step 4: Post to each platform
+  // Step 2 — Normalize payload
+  const payload = {
+    imageUrl,
+    caption,
+    timestamp: new Date().toISOString(),
+  };
+
+  // Step 3 — Initialize results
+  const results = { facebook: null, linkedin: null, errors: [] };
+
+  // Step 4 — Execute posts
   for (const platform of platforms) {
-    results[platform] = await run(platform, { imageUrl, caption });
+    try {
+      if (platform === 'facebook') {
+        results.facebook = await run('facebook', { imageUrl, caption });
+      } else if (platform === 'linkedin') {
+        if (process.env.LINKEDIN_ACCESS_TOKEN) {
+          results.linkedin = await runLinkedIn({ imageUrl, caption });
+        } else {
+          results.linkedin = 'skipped';
+          console.warn('[LinkedIn] No access token — skipping');
+        }
+      }
+    } catch (err) {
+      results.errors.push(`[${platform}] ${err.message}`);
+    }
   }
 
-  // Step 5: Report
-  for (const [platform, result] of Object.entries(results)) {
-    console.log(`[${platform}]`, result.success ? '✅ Success' : `❌ Failed: ${result.result?.error}`);
-  }
+  // Step 5 — Log
+  await logPost({ ...payload, platforms, results });
 
-  return results;
+  // Step 6 — Return
+  const success = results.errors.length === 0;
+  return { success, results };
 }
 
-// Run directly
-multiPlatformPost({
-  imageUrl: 'https://example.com/image.jpg',
-  caption: 'This is a test post',
-  platforms: ['facebook', 'linkedin'],
-});
+module.exports = { multiPlatformPost };
 ```
 
 ### CLI Usage
@@ -169,17 +224,18 @@ node meta/postRunner.js all '{"imageUrl":"https://example.com/image.jpg","captio
 ---
 
 ## Dependencies
-- `meta/postRunner.js` — universal runner
-- `meta/postToFacebook.js` — Facebook posting
-- `linkedin/postToLinkedIn.js` — LinkedIn posting
+
+- `meta/postRunner.js` — Facebook posting runner
+- `linkedin/linkedinRunner.js` — LinkedIn posting runner
 - `utils/logger.js` — log writer
-- `.env` → `PAGE_ID`, `ACCESS_TOKEN`, `LINKEDIN_ACCESS_TOKEN`, `LINKEDIN_PERSON_URN`
+- `.env` → `PAGE_ID`, `ACCESS_TOKEN`, `LINKEDIN_ACCESS_TOKEN` *(optional)*
 
 ---
 
-## Notes
-- LinkedIn posting is scaffolded — add `LINKEDIN_ACCESS_TOKEN` + `LINKEDIN_PERSON_URN` to `.env` to activate
-- Platform-specific captions consistently outperform shared copy — use Option B when possible
-- All posts logged to `/logs/posts.json` automatically — monitor for failures
-- Use Remotion for branded visuals — render platform-specific sizes for best results
-- Consider scheduling this workflow with a cron job or the built-in `schedule` skill
+## Future Extensions
+
+- **Instagram** — same Meta Graph API, minimal changes to `postToFacebook.js`
+- **Scheduling** — cron job or queue system integration
+- **Retry logic** — exponential backoff for failed posts
+- **Caption generation** — auto-generate via `/prompts/facebookCaption.txt` + Claude API
+- **Analytics tracking** — record reach, impressions, and engagement per post
