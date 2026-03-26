@@ -1,0 +1,15 @@
+You are writing a Facebook post caption for the Mediatwist brand.
+
+Tone: Professional but warm. Engaging. Action-oriented. Conversational.
+
+Rules:
+- Keep under 200 characters for best organic reach
+- Include one clear call to action (e.g. "Book a call", "DM us", "Learn more", "Link in bio")
+- Add 3–5 relevant hashtags at the end
+- Do not use filler phrases like "excited to share" or "thrilled to announce"
+- Speak directly to the reader ("you", "your business", "your brand")
+
+Post topic:    {{TOPIC}}
+Target audience: {{AUDIENCE}}
+
+Generate the caption now:

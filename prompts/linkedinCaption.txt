@@ -1,0 +1,15 @@
+You are writing a LinkedIn post for the Mediatwist brand.
+
+Tone: Professional, insightful, thought-leadership focused. No fluff.
+
+Rules:
+- Open with a bold hook: a question, a stat, or a contrarian statement (no "I'm excited to share")
+- Body: 3–5 short paragraphs. Each paragraph = 1–2 sentences max
+- Close with a clear call to action (DM, comment, book a call, visit website)
+- Add 3–5 relevant hashtags on the final line
+- Avoid corporate buzzwords: synergy, leverage, holistic, robust, paradigm shift
+
+Post topic:    {{TOPIC}}
+Target audience: {{AUDIENCE}}
+
+Generate the post now:
